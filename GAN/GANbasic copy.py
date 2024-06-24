@@ -1,6 +1,5 @@
 
 !pip install torch librosa matplotlib numpy soundfile
-#### Mount Google Drive
 
 from google.colab import drive
 drive.mount('/content/drive')
@@ -18,6 +17,16 @@ def load_audio(file_path, sr=22050):
     mel_spectrogram = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128)
     mel_spectrogram_db = librosa.power_to_db(mel_spectrogram, ref=np.max)
     return mel_spectrogram_db
+
+# Load and plot sample spectrogram
+sample_file = audio_files[0]
+sample_spectrogram = load_audio(sample_file)
+plt.figure(figsize=(10, 4))
+librosa.display.specshow(sample_spectrogram, sr=22050, x_axis='time', y_axis='mel', cmap='viridis')
+plt.colorbar(format='%+2.0f dB')
+plt.title('Mel Spectrogram of Sample Audio')
+plt.tight_layout()
+plt.show()
 
 spectrograms = [load_audio(file) for file in audio_files]
 spectrograms = np.array(spectrograms)
@@ -64,6 +73,9 @@ def train_gan(generator, discriminator, data, epochs=100, lr=0.0002):
     optimizer_G = optim.Adam(generator.parameters(), lr=lr)
     optimizer_D = optim.Adam(discriminator.parameters(), lr=lr)
 
+    d_losses = []
+    g_losses = []
+
     for epoch in range(epochs):
         for real_images in data:
             batch_size = real_images.size(0)
@@ -86,6 +98,7 @@ def train_gan(generator, discriminator, data, epochs=100, lr=0.0002):
             optimizer_D.step()
 
             d_loss = d_loss_real + d_loss_fake
+            d_losses.append(d_loss.item())
 
             # Train Generator
             optimizer_G.zero_grad()
@@ -94,7 +107,19 @@ def train_gan(generator, discriminator, data, epochs=100, lr=0.0002):
             g_loss.backward()
             optimizer_G.step()
 
+            g_losses.append(g_loss.item())
+
         print(f"Epoch [{epoch+1}/{epochs}], d_loss: {d_loss.item()}, g_loss: {g_loss.item()}")
+
+    # Plot losses
+    plt.figure(figsize=(10, 5))
+    plt.plot(d_losses, label='Discriminator Loss')
+    plt.plot(g_losses, label='Generator Loss')
+    plt.title('Training Losses')
+    plt.xlabel('Batch')
+    plt.ylabel('Loss')
+    plt.legend()
+    plt.show()
 
 # Convert spectrograms to tensor and create DataLoader
 spectrograms_tensor = torch.tensor(spectrograms, dtype=torch.float32).unsqueeze(1)
@@ -121,10 +146,20 @@ def generate_voice_samples(generator, num_samples=10, save_path='/content/drive/
         sf.write(file_path, y_inv, 22050)
         print(f"Saved {file_path}")
 
+generate_voice_samples(generator)
 
-### Step 6: Post-Processing and Analysis
+# Visualize generated spectrograms
+z = torch.randn(5, 100)
+generated_spectrograms = generator(z).detach().numpy()
 
-import matplotlib.pyplot as plt
+plt.figure(figsize=(15, 10))
+for i, spectrogram in enumerate(generated_spectrograms, 1):
+    plt.subplot(2, 3, i)
+    librosa.display.specshow(spectrogram.reshape(128, 128), sr=22050, x_axis='time', y_axis='mel', cmap='viridis')
+    plt.colorbar(format='%+2.0f dB')
+    plt.title(f'Generated Spectrogram {i}')
+plt.tight_layout()
+plt.show()
 
 def plot_spectrograms(spectrograms, title):
     fig, axes = plt.subplots(1, len(spectrograms), figsize=(15, 5))
