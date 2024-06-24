@@ -1,5 +1,5 @@
-# MozilaVoiceDatasetValidation
- MozilaVoiceDatasetValidation
+# DeepwaveVoiceRecognition
+DeepwaveVoiceRecognition
  
 https://github.com/common-voice/cv-dataset/tree/main/datasets
 
