@@ -12,3 +12,4 @@ https://www.kaggle.com/competitions/birdsong-recognition
 https://www.kaggle.com/code/shabareesharyan/classify-gender-on-acoustic-parameters-5-models
 
 https://youtu.be/czdwIr-v5Yc?si=ISfmEU_9Y8t0Jm55
+
