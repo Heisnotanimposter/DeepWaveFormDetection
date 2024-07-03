@@ -24,6 +24,8 @@ from torch.autograd import Variable, grad
 import torchvision.utils
 from torchvision.utils import save_image
 import soundfile as sf
+from sklearn.model_selection import KFold
+
 
 drive.mount('/content/drive')
 
@@ -35,23 +37,67 @@ drive.mount('/content/drive')
 
 !ls "/content/drive/MyDrive/dataset/TeamDeepwave/dataset/cv-corpus-17.0-delta-2024-03-15/en/clips"
 
-# Define paths (Replace with your actual paths)
-common_voice_path = '/content/drive/MyDrive/dataset/TeamDeepwave/dataset/cv-corpus-17.0-delta-2024-03-15/en/clips'
-GENERATED_PATH = '/content/drive/MyDrive/dataset/TeamDeepwave/dataset/KaggleDataset/generated'
-CHECKPOINT_PATH = '/content/drive/MyDrive/dataset/TeamDeepwave/dataset/KaggleDataset/model_checkpoints'
-
 # Hyperparameters
 num_epochs = 100
 learning_rate = 0.0002
 batch_size = 64
 latent_dim = 100
 LAMBDA_GP = 10
+validation_split = 0.2
 
 # Load the Common Voice dataset
-train_dataset = load_dataset("/content/drive/MyDrive/dataset/TeamDeepwave/dataset/cv-corpus-17.0-delta-2024-03-15/en/clips", "default", split="train")
-validation_dataset = load_dataset("/content/drive/MyDrive/dataset/TeamDeepwave/dataset/cv-corpus-17.0-delta-2024-03-15/en/clips", "default", split="validation")
+common_voice_path = '/content/drive/MyDrive/dataset/TeamDeepwave/dataset/cv-corpus-17.0-delta-2024-03-15/en/clips'
+generated_path = '/content/drive/MyDrive/dataset/TeamDeepwave/dataset/KaggleDataset/generated'
+checkpoint_path = '/content/drive/MyDrive/dataset/TeamDeepwave/dataset/KaggleDataset/model_checkpoints'
+#train_dataset = load_dataset("/content/drive/MyDrive/dataset/TeamDeepwave/dataset/cv-corpus-17.0-delta-2024-03-15/en/clips", "default", split="train")
+#validation_dataset = load_dataset("/content/drive/MyDrive/dataset/TeamDeepwave/dataset/cv-corpus-17.0-delta-2024-03-15/en/clips", "default", split="validation")
+#dataset = load_dataset("/content/drive/MyDrive/dataset/TeamDeepwave/dataset/cv-corpus-17.0-delta-2024-03-15/en/clips", "default", split="train")
 
-dataset = load_dataset("/content/drive/MyDrive/dataset/TeamDeepwave/dataset/cv-corpus-17.0-delta-2024-03-15/en/clips", "default", split="train+validation")
+# Function to load and preprocess audio data
+def load_audio_and_preprocess(file_path, sr=22050, max_length=128):
+    y, _ = librosa.load(file_path, sr=sr)
+    stft = librosa.stft(y)
+    spectrogram = librosa.amplitude_to_db(np.abs(stft), ref=np.max)
+
+    if spectrogram.shape[1] < max_length:
+        spectrogram = np.pad(spectrogram, pad_width=((0, 0), (0, max_length - spectrogram.shape[1])), mode='constant')
+    else:
+        spectrogram = spectrogram[:, :max_length]
+
+    spectrogram = (spectrogram - np.min(spectrogram)) / (np.max(spectrogram) - np.min(spectrogram))
+    spectrogram = cv2.resize(spectrogram, (128, 128))
+    return spectrogram
+
+# Load the Common Voice dataset (train split only)
+dataset = load_dataset(common_voice_path, split="train")
+
+# Preprocess the entire dataset
+all_spectrograms = [load_audio_and_preprocess(item) for item in dataset]
+all_spectrograms = np.array(all_spectrograms)
+
+# Convert to PyTorch tensors
+all_spectrograms_tensor = torch.tensor(all_spectrograms, dtype=torch.float32).unsqueeze(1)
+
+# Create the dataset and dataloader
+dataset = torch.utils.data.TensorDataset(all_spectrograms_tensor)
+dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+"""
+# Number of folds for cross-validation
+k = 5
+kf = KFold(n_splits=k, shuffle=True, random_state=42)
+
+for fold, (train_indices, val_indices) in enumerate(kf.split(dataset)):
+    # Create training and validation subsets for this fold
+    train_subset = torch.utils.data.Subset(dataset, train_indices)
+    val_subset = torch.utils.data.Subset(dataset, val_indices)
+
+    # Create DataLoaders for this fold
+    train_loader = torch.utils.data.DataLoader(train_subset, batch_size=batch_size, shuffle=True)
+    val_loader = torch.utils.data.DataLoader(val_subset, batch_size=batch_size, shuffle=False)
+
+
+"""
 
 # Modified preprocessing function to handle audio files in Common Voice format
 def load_audio_and_preprocess(item, sr=22050, max_length=128):
@@ -214,22 +260,32 @@ def save_spectrogram_image(gen, input_noise, epoch, batch_num, save_path):
 # Global variable upper the train_gan
 fixed_noise = torch.randn(9, latent_dim, 1, 1, device=device)
 
-# Training Loop (Modified with WGAN-GP and Phase Shuffle)
-def train_gan(generator, discriminator, dataloader, num_epochs=num_epochs, lr=learning_rate, device="cuda"):
-    criterion = nn.MSELoss()  # Least Squares Loss for WaveGAN
+# Training and Validation Loop (Modified with WGAN-GP and Phase Shuffle)
+def train_gan(generator, discriminator, dataloader, num_epochs=num_epochs, lr=learning_rate, device="cuda", validation_split=validation_split):
+
+    # Split dataset into training and validation sets
+    train_size = int((1 - validation_split) * len(dataset))
+    val_size = len(dataset) - train_size
+    train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
+
+    # Create DataLoaders for training and validation sets
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=batch_size, shuffle=False)  # No need to shuffle validation data
+
+    criterion = nn.MSELoss()
     optimizer_G = optim.Adam(generator.parameters(), lr=lr, betas=(0.5, 0.999))
     optimizer_D = optim.Adam(discriminator.parameters(), lr=lr, betas=(0.5, 0.999))
 
     G_losses = []
     D_losses = []
 
-    # Fixed noise for visualization
-    fixed_noise = torch.randn(64, latent_dim, 1, 1, device=device)
+    # Fixed noise for visualization and for generating spectograms
+    fixed_noise = torch.randn(9, latent_dim, 1, 1, device=device)
     iters = 0
-    num_batches = len(dataloader)  # Calculate the total number of batches
+    num_batches = len(train_loader)
 
     for epoch in range(num_epochs):
-        for i, (real_samples, _) in enumerate(dataloader):
+        for i, (real_samples, _) in enumerate(train_loader):
             real_samples = real_samples.to(device)
 
             # Train Discriminator (Critic)
@@ -263,8 +319,29 @@ def train_gan(generator, discriminator, dataloader, num_epochs=num_epochs, lr=le
                 print(f"Epoch [{epoch}/{num_epochs}] Batch {i}/{len(dataloader)} \
                       Loss D: {d_loss:.4f}, loss G: {g_loss:.4f}")
 
-                save_checkpoint(generator, discriminator, optimizer_G, optimizer_D, epoch, i, CHECKPOINT_PATH)
-                save_spectrogram_image(generator, fixed_noise, epoch, i, GENERATED_PATH)
+                save_checkpoint(generator, discriminator, optimizer_G, optimizer_D, epoch, i, checkpoint_path)
+                save_spectrogram_image(generator, fixed_noise, epoch, i, generated_path)
+
+            # Validation Step
+            if i % validation_interval == 0:
+                val_loss_d = 0.0
+                val_loss_g = 0.0
+                with torch.no_grad():
+                    for val_images, _ in val_loader:
+                        val_images = val_images.to(device)
+                        # Validate discriminator
+                        real_validity = discriminator(val_images)
+                        fake_validity = discriminator(generator(torch.randn(val_images.size(0), latent_dim, 1, 1, device=device)))
+                        val_loss_d += (-torch.mean(real_validity) + torch.mean(fake_validity)).item()
+                        # Validate generator
+                        fake_validity = discriminator(generator(torch.randn(val_images.size(0), latent_dim, 1, 1, device=device)))
+                        val_loss_g += -torch.mean(fake_validity).item()
+
+                val_loss_d /= len(val_loader)
+                val_loss_g /= len(val_loader)
+                print(f'Validation - Epoch [{epoch}/{num_epochs}] Batch {i}/{len(train_loader)} \
+                      Loss D: {val_loss_d:.4f}, loss G: {val_loss_g:.4f}')
+
 
     return generator, G_losses, D_losses
 
