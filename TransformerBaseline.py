@@ -18,7 +18,7 @@ device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cp
 class Config:
     SR = 32000
     N_MFCC = 13
-    ROOT_FOLDER = './'
+    ROOT_FOLDER = './open'
     N_CLASSES = 2
     BATCH_SIZE = 64
     N_EPOCHS = 10
@@ -39,7 +39,7 @@ def seed_everything(seed):
 
 seed_everything(CONFIG.SEED)
 
-df = pd.read_csv('./dataset.csv')
+df = pd.read_csv('./.csv')
 train_df, val_df = train_test_split(df, test_size=0.2, random_state=CONFIG.SEED)
 
 def get_mfcc_feature(df, train_mode=True):
