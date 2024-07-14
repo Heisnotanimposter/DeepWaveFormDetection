@@ -1,0 +1,11 @@
+id,path,label
+RUNQPNJF,./train/RUNQPNJF.ogg,real
+JFAWUOGJ,./train/JFAWUOGJ.ogg,fake
+RDKEKEVX,./train/RDKEKEVX.ogg,real
+QYHJDOFK,./train/QYHJDOFK.ogg,real
+RSPQNHAO,./train/RSPQNHAO.ogg,real
+WJRTCPVX,./train/WJRTCPVX.ogg,fake
+ICDBLWYI,./train/ICDBLWYI.ogg,real
+ZWPWYAIZ,./train/ZWPWYAIZ.ogg,fake
+QGNUXBKY,./train/QGNUXBKY.ogg,fake
+FRUWZOVC,./train/FRUWZOVC.ogg,fake
